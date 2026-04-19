@@ -348,6 +348,381 @@ body {
   text-shadow: 0 0 10px var(--magenta);
 }
 
+/* ── V2 HUD: Buff chips ──────────────────────────────────────────────────── */
+.hud-buffs {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 2;
+  /* sits in grid col 2 row 1, but absolute so it doesn't displace wave slot */
+}
+
+.buff-chip {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid var(--chip-color, var(--cyan));
+  box-shadow: 0 0 6px var(--chip-color, var(--cyan)), 0 0 14px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: bold;
+  color: var(--chip-color, var(--cyan));
+  text-shadow: 0 0 5px var(--chip-color, var(--cyan));
+  text-transform: uppercase;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* countdown ring via conic-gradient on ::before */
+.buff-chip::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--chip-color, var(--cyan)) calc(var(--p, 1) * 360deg),
+    rgba(255, 255, 255, 0.08) 0
+  );
+  z-index: 0;
+}
+
+/* inner glyph sits above the ring */
+.buff-chip > span {
+  position: relative;
+  z-index: 1;
+}
+
+/* color palette per kind */
+.buff-chip[data-kind="rapidfire"] { --chip-color: var(--cyan); }
+.buff-chip[data-kind="spread"]    { --chip-color: var(--magenta); }
+.buff-chip[data-kind="pierce"]    { --chip-color: #ffffff; }
+.buff-chip[data-kind="shield"]    { --chip-color: var(--yellow); }
+.buff-chip[data-kind="heal"]      { --chip-color: var(--lime); }
+.buff-chip[data-kind="bomb"]      { --chip-color: #ff5a5a; }
+
+/* ── V2 HUD: Dash pip ────────────────────────────────────────────────────── */
+.dash-pip {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 1rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(34, 228, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: rgba(34, 228, 255, 0.5);
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.dash-pip::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--cyan) calc(var(--p, 0) * 360deg),
+    rgba(34, 228, 255, 0.08) 0
+  );
+}
+
+.dash-pip > span {
+  position: relative;
+  z-index: 1;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.dash-pip.ready {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan);
+  animation: dash-pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes dash-pulse {
+  from { box-shadow: 0 0 6px var(--cyan), 0 0 12px rgba(34, 228, 255, 0.3); }
+  to   { box-shadow: 0 0 14px var(--cyan), 0 0 28px rgba(34, 228, 255, 0.6); }
+}
+
+/* ── V2 HUD: Boss health bar ─────────────────────────────────────────────── */
+.boss-bar {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  max-width: 800px;
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  /* offset downward to sit below wave slot */
+  margin-top: 2rem;
+}
+
+.boss-bar .label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  text-shadow: 0 0 5px var(--cyan);
+}
+
+.boss-bar__fill-track {
+  width: 100%;
+  height: 22px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(34, 228, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.boss-bar__fill {
+  height: 22px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(34, 228, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.boss-bar__fill::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: calc(var(--p, 1) * 100%);
+  background: linear-gradient(90deg, rgba(34, 228, 255, 0.6), var(--cyan));
+  box-shadow: 0 0 8px var(--cyan);
+  transition: width 0.15s ease;
+  border-radius: 2px;
+}
+
+/* danger pulse when HP < 33% */
+.boss-bar[data-danger="true"] .boss-bar__fill::after {
+  background: linear-gradient(90deg, rgba(255, 61, 240, 0.6), var(--magenta));
+  box-shadow: 0 0 8px var(--magenta);
+  animation: boss-danger 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes boss-danger {
+  from { opacity: 1; }
+  to   { opacity: 0.6; }
+}
+
+/* ── V2 HUD: Wave banner ─────────────────────────────────────────────────── */
+.wave-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: bold;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  text-shadow: 0 0 20px var(--cyan), 0 0 50px rgba(34, 228, 255, 0.5);
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.wave-banner.show {
+  animation: wave-flash 1.6s ease forwards;
+}
+
+@keyframes wave-flash {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  75%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+}
+
+/* ── V2 Settings overlay ─────────────────────────────────────────────────── */
+.overlay--settings .overlay__title,
+#overlay-settings .overlay__title {
+  color: var(--cyan);
+  text-shadow: var(--glow-c);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.9rem 0;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(34, 228, 255, 0.1);
+}
+
+.settings-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.settings-value {
+  font-size: 0.75rem;
+  color: var(--cyan);
+  text-shadow: 0 0 5px var(--cyan);
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Neon slider */
+.settings-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 4px;
+  background: rgba(34, 228, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.settings-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--cyan) 0%,
+    var(--cyan) calc(var(--pct, 70%) * 1%),
+    rgba(34, 228, 255, 0.15) calc(var(--pct, 70%) * 1%),
+    rgba(34, 228, 255, 0.15) 100%
+  );
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px var(--cyan), 0 0 12px rgba(34, 228, 255, 0.4);
+  margin-top: -5px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+
+.settings-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 10px var(--cyan), 0 0 20px rgba(34, 228, 255, 0.6);
+}
+
+.settings-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(34, 228, 255, 0.15);
+}
+
+.settings-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cyan);
+}
+
+.settings-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px var(--cyan);
+  cursor: pointer;
+}
+
+/* Neon toggle checkbox */
+.settings-toggle {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.settings-toggle-label {
+  display: block;
+  width: 40px;
+  height: 22px;
+  background: rgba(34, 228, 255, 0.1);
+  border: 1px solid rgba(34, 228, 255, 0.3);
+  border-radius: 11px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-toggle-label::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(34, 228, 255, 0.4);
+  transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.settings-toggle:checked + .settings-toggle-label {
+  background: rgba(34, 228, 255, 0.2);
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(34, 228, 255, 0.4);
+}
+
+.settings-toggle:checked + .settings-toggle-label::after {
+  transform: translateX(18px);
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+/* Settings button on pause overlay */
+.overlay__button--settings {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  text-shadow: 0 0 6px var(--yellow);
+  box-shadow: 0 0 8px rgba(255, 216, 77, 0.2), inset 0 0 8px rgba(255, 216, 77, 0.05);
+}
+
+.overlay__button--settings:hover {
+  background: rgba(255, 216, 77, 0.1);
+  box-shadow: 0 0 16px rgba(255, 216, 77, 0.5), inset 0 0 12px rgba(255, 216, 77, 0.1);
+  color: #fff;
+  text-shadow: 0 0 10px var(--yellow);
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .overlay__panel {

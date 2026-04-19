@@ -15,6 +15,10 @@
         <div class="hud__slot" data-slot="wave">Wave: <span data-hud="wave">1</span></div>
         <div class="hud__slot" data-slot="health">HP: <span data-hud="health">100</span></div>
         <div class="hud__slot" data-slot="combo">Combo: <span data-hud="combo">x1</span></div>
+        <div class="hud-buffs" data-hud="buffs"></div>
+        <div class="dash-pip hidden" data-hud="dash"></div>
+        <div class="boss-bar hidden" data-hud="boss"><span class="label">BOSS</span><div class="boss-bar__fill"></div></div>
+        <div class="wave-banner" data-hud="banner"></div>
       </div>
 
       <div id="overlay-menu" class="overlay overlay--menu" data-overlay="menu">
@@ -31,8 +35,30 @@
           <h2 class="overlay__title">Paused</h2>
           <button class="overlay__button" data-action="resume">Resume</button>
           <button class="overlay__button" data-action="reset">Restart</button>
+          <button class="overlay__button overlay__button--settings" data-action="open-settings">Settings</button>
         </div>
       </div>
+
+      <section class="overlay hidden" data-overlay="settings" id="overlay-settings">
+        <div class="overlay__panel">
+          <h2 class="overlay__title">Settings</h2>
+          <div class="settings-row">
+            <label class="settings-label" for="settings-volume">Volume</label>
+            <div class="settings-control">
+              <input type="range" min="0" max="100" id="settings-volume" data-setting="volume" class="settings-slider" />
+              <span class="settings-value" id="settings-volume-val">70</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="settings-shake">Screen Shake</label>
+            <div class="settings-control">
+              <input type="checkbox" id="settings-shake" data-setting="shake" class="settings-toggle" />
+              <label class="settings-toggle-label" for="settings-shake"></label>
+            </div>
+          </div>
+          <button class="overlay__button" data-action="settings-back">Back</button>
+        </div>
+      </section>
 
       <div id="overlay-gameover" class="overlay overlay--gameover hidden" data-overlay="gameover">
         <div class="overlay__panel">

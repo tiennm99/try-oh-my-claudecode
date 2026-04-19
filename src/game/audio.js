@@ -13,6 +13,13 @@ export class AudioBus {
   constructor() {
     this.ctx = null;
     this.enabled = true;
+    this.master = 1;
+  }
+
+  setMasterVolume(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return;
+    this.master = Math.max(0, Math.min(1, n));
   }
 
   _ensureCtx() {
@@ -48,7 +55,7 @@ export class AudioBus {
     osc.type = voice.type;
     osc.frequency.setValueAtTime(voice.freq, now);
     osc.frequency.exponentialRampToValueAtTime(Math.max(20, voice.freqEnd), now + voice.dur);
-    gain.gain.setValueAtTime(voice.gain, now);
+    gain.gain.setValueAtTime(voice.gain * this.master, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + voice.dur);
     osc.connect(gain).connect(ctx.destination);
     osc.start(now);

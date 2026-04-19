@@ -1,9 +1,22 @@
-// Wave spawner: schedules enemies with stagger, advances wave when field is clear.
+// Wave spawner: schedules enemies with stagger, advances when field is clear.
+// V2: boss wave every 5 waves; shooters injected from wave 3+.
 
 import { Enemy, EnemyTypes } from "./enemy.js";
+import { spawnBoss } from "./boss.js";
 
 const INTERMISSION = 2.0;
 const SPAWN_STAGGER = 0.35;
+const MAX_SHOOTERS = 4;
+
+function isBossWave(wave) {
+  return wave > 0 && wave % 5 === 0;
+}
+
+function shooterCount(wave) {
+  if (wave < 3) return 0;
+  const n = 1 + Math.floor((wave - 3) / 2);
+  return Math.min(MAX_SHOOTERS, n);
+}
 
 export class WaveManager {
   constructor() {
@@ -12,6 +25,8 @@ export class WaveManager {
     this.spawnTimer = 0;
     this.intermission = 0;
     this.waveActive = false;
+    this.isBoss = false;
+    this.bossSpawned = false;
     this._buildQueue(this.wave);
   }
 
@@ -21,6 +36,8 @@ export class WaveManager {
     this.spawnTimer = 0;
     this.intermission = 0;
     this.waveActive = false;
+    this.isBoss = false;
+    this.bossSpawned = false;
     this._buildQueue(this.wave);
     this.waveActive = true;
   }
@@ -31,6 +48,15 @@ export class WaveManager {
 
   _buildQueue(wave) {
     const q = [];
+    this.isBoss = isBossWave(wave);
+    this.bossSpawned = false;
+
+    if (this.isBoss) {
+      this.queue = q;
+      this.spawnTimer = 0.4;
+      return;
+    }
+
     if (wave === 1) {
       for (let i = 0; i < 8; i++) q.push(EnemyTypes.CHASER);
     } else if (wave === 2) {
@@ -44,6 +70,10 @@ export class WaveManager {
       for (let i = 0; i < bruisers; i++) q.push(EnemyTypes.BRUISER);
       for (let i = 0; i < splitters; i++) q.push(EnemyTypes.SPLITTER);
     }
+
+    const shooters = shooterCount(wave);
+    for (let i = 0; i < shooters; i++) q.push(EnemyTypes.SHOOTER);
+
     for (let i = q.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [q[i], q[j]] = [q[j], q[i]];
@@ -83,12 +113,36 @@ export class WaveManager {
         this._buildQueue(this.wave);
         this.waveActive = true;
         if (game.hud) game.hud.setWave(this.wave);
+        if (typeof game._emit === "function") {
+          game._emit("waveStart", { wave: this.wave, isBoss: this.isBoss });
+        }
       }
       return;
     }
 
     if (!this.waveActive) {
       this.waveActive = true;
+    }
+
+    if (this.isBoss) {
+      if (!this.bossSpawned) {
+        this.spawnTimer -= dt;
+        if (this.spawnTimer <= 0) {
+          const boss = spawnBoss(game, this.wave);
+          if (typeof game.setBossActive === "function") {
+            game.setBossActive(boss);
+          } else {
+            game.boss = boss;
+          }
+          this.bossSpawned = true;
+        }
+        return;
+      }
+      if (game.boss == null) {
+        this.waveActive = false;
+        this.intermission = INTERMISSION;
+      }
+      return;
     }
 
     if (this.queue.length > 0) {

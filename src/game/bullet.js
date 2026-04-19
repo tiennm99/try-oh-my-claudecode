@@ -1,4 +1,5 @@
 // Bullet: straight-line projectile rendered as a short neon tracer.
+// Supports a pierce budget: pass-through hits remaining before the bullet dies.
 
 import { Entity } from "../engine/entity.js";
 
@@ -11,6 +12,25 @@ export class Bullet extends Entity {
     this.ttl = opts.ttl ?? DEFAULT_TTL;
     this.owner = opts.owner ?? "player";
     this.color = opts.color || "#9ff";
+    this.pierce = opts.pierce ?? 0;
+    this._hitIds = null;
+  }
+
+  onHit(target) {
+    if (target && typeof target.id === "number") {
+      if (!this._hitIds) this._hitIds = new Set();
+      this._hitIds.add(target.id);
+    }
+    if (this.pierce > 0) {
+      this.pierce -= 1;
+      return;
+    }
+    this.alive = false;
+  }
+
+  hasHit(target) {
+    if (!this._hitIds || !target || typeof target.id !== "number") return false;
+    return this._hitIds.has(target.id);
   }
 
   update(dt, game) {
@@ -42,7 +62,7 @@ export class Bullet extends Entity {
     ctx.shadowColor = this.color;
     ctx.shadowBlur = 14;
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = this.pierce > 0 ? 4 : 3;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(x1, y1);

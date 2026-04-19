@@ -4,9 +4,10 @@ import { createCanvas } from "./engine/canvas.js";
 import { createInput } from "./engine/input.js";
 import { startLoop } from "./engine/loop.js";
 import { Game, GameState } from "./game/game.js";
-import { HUD } from "./ui/hud.js";
+import { HUD, wireV2Hud } from "./ui/hud.js";
 import { Menu } from "./ui/menu.js";
 import { HighScore } from "./ui/highscore.js";
+import { saveSettings } from "./game/settings.js";
 
 const canvasEl = document.getElementById("game");
 if (!canvasEl) throw new Error("#game canvas not found");
@@ -18,18 +19,32 @@ const highscore = new HighScore();
 
 const game = new Game({ canvas, input, hud, highscore });
 hud.setBest(highscore.get());
+wireV2Hud(game, hud);
 
-const menu = new Menu(document, {
-  start: () => {
-    game.start();
+const menu = new Menu(
+  document,
+  {
+    start: () => {
+      game.start();
+    },
+    resume: () => {
+      game.resume();
+    },
+    reset: () => {
+      game.start();
+    },
   },
-  resume: () => {
-    game.resume();
+  {
+    initialSettings: game.settings,
+    onSettingChange: (key, value) => {
+      game.settings[key] = value;
+      saveSettings(game.settings);
+      if (key === "volume" && game.audio && typeof game.audio.setMasterVolume === "function") {
+        game.audio.setMasterVolume(value);
+      }
+    },
   },
-  reset: () => {
-    game.start();
-  },
-});
+);
 
 function renderOverlay(state) {
   if (state === GameState.MENU) menu.show("menu");
@@ -41,11 +56,20 @@ function renderOverlay(state) {
 game.on("stateChange", renderOverlay);
 renderOverlay(game.state);
 
+if (game.audio && typeof game.audio.setMasterVolume === "function") {
+  game.audio.setMasterVolume(game.settings.volume);
+}
+
 const loop = startLoop({
   update: (dt) => {
     if (input.wasPressed("KeyP") || input.wasPressed("Escape")) {
       if (game.state === GameState.PLAYING) game.pause();
       else if (game.state === GameState.PAUSED) game.resume();
+    }
+    if (input.wasPressed("ShiftLeft") || input.wasPressed("ShiftRight")) {
+      if (game.state === GameState.PLAYING && typeof game.player.tryDash === "function") {
+        game.player.tryDash(game);
+      }
     }
     game.update(dt);
     input.endFrame();

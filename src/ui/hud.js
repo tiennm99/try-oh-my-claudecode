@@ -1,4 +1,5 @@
 // HUD — renders score, wave, health pips, and combo into the DOM.
+// V2 adds: setBuffs, setDashReady, setBossHealth, setWaveBanner + sync helpers.
 
 const PIP_COUNT = 10;
 
@@ -17,13 +18,13 @@ export class HUD {
 
     this._maxHealth = 100;
     this._buildPips();
+    this._bannerTimer = null;
   }
 
   _buildPips() {
     const healthSlot = this.root.querySelector('[data-slot="health"]');
     if (!healthSlot) return;
 
-    // Replace bare text with label + pip strip
     healthSlot.innerHTML = '<span class="hud__label">HP</span>';
 
     const strip = document.createElement("div");
@@ -39,15 +40,15 @@ export class HUD {
     }
     healthSlot.appendChild(strip);
 
-    // Append the numeric span back for screen-readers / game logic reads
     const numeric = document.createElement("span");
     numeric.setAttribute("data-hud", "health");
     numeric.style.display = "none";
     healthSlot.appendChild(numeric);
 
-    // Update our node reference to the hidden numeric span
     this.nodes.health = numeric;
   }
+
+  // --- V1 API (unchanged) ---
 
   setScore(v) {
     if (this.nodes.score) this.nodes.score.textContent = String(v);
@@ -86,4 +87,133 @@ export class HUD {
   setFinalScore(v) {
     if (this.nodes.finalScore) this.nodes.finalScore.textContent = String(v);
   }
+
+  // --- V2 API ---
+
+  _ensureNode(key, tag = "div") {
+    let el = this.root.querySelector(`[data-hud="${key}"]`);
+    if (!el) {
+      el = document.createElement(tag);
+      el.setAttribute("data-hud", key);
+      const hudRoot = this.root.getElementById ? this.root.getElementById("hud") : this.root.querySelector("#hud");
+      if (hudRoot) hudRoot.appendChild(el);
+    }
+    return el;
+  }
+
+  setBuffs(list) {
+    let container = this.root.querySelector('[data-hud="buffs"]');
+    if (!container) {
+      container = document.createElement("div");
+      container.setAttribute("data-hud", "buffs");
+      container.className = "hud-buffs";
+      const hudRoot = this.root.getElementById
+        ? this.root.getElementById("hud")
+        : this.root.querySelector("#hud");
+      if (hudRoot) hudRoot.appendChild(container);
+    }
+
+    // Reconcile chips
+    const existing = Array.from(container.children);
+    const listLen = list ? list.length : 0;
+
+    // Remove extras
+    while (container.children.length > listLen) {
+      container.removeChild(container.lastChild);
+    }
+
+    for (let i = 0; i < listLen; i++) {
+      const { kind, remaining = 0, stacks } = list[i];
+      let chip = container.children[i];
+      if (!chip) {
+        chip = document.createElement("div");
+        chip.className = "hud-buff-chip";
+        container.appendChild(chip);
+      }
+      chip.setAttribute("data-kind", kind);
+      chip.style.setProperty("--p", String(remaining));
+
+      if (kind === "shield") {
+        chip.textContent = String(stacks != null ? stacks : "");
+      } else {
+        chip.textContent = "";
+      }
+    }
+  }
+
+  setDashReady(ready, cooldown = 0) {
+    const el = this._ensureNode("dash");
+    el.classList.toggle("ready", !!ready);
+    el.style.setProperty("--p", String(cooldown));
+  }
+
+  setBossHealth(frac) {
+    const el = this._ensureNode("boss");
+    if (frac === null || frac === undefined) {
+      el.classList.add("hidden");
+    } else {
+      el.classList.remove("hidden");
+      el.style.setProperty("--p", String(Math.max(0, Math.min(1, frac))));
+      if (!el.querySelector(".boss-label")) {
+        const label = document.createElement("span");
+        label.className = "boss-label";
+        label.textContent = "BOSS";
+        el.appendChild(label);
+      }
+    }
+  }
+
+  setWaveBanner(text, duration = 1.6) {
+    let el = this.root.querySelector('[data-hud="banner"]');
+    if (!el) {
+      el = document.createElement("div");
+      el.setAttribute("data-hud", "banner");
+      el.className = "hud-wave-banner";
+      const hudRoot = this.root.getElementById
+        ? this.root.getElementById("hud")
+        : this.root.querySelector("#hud");
+      if (hudRoot) hudRoot.appendChild(el);
+    }
+
+    el.textContent = text;
+    el.classList.add("show");
+
+    if (this._bannerTimer) clearTimeout(this._bannerTimer);
+    this._bannerTimer = setTimeout(() => {
+      el.classList.remove("show");
+      this._bannerTimer = null;
+    }, duration * 1000);
+  }
+}
+
+// syncHudPerFrame: call every frame while playing
+export function syncHudPerFrame(game, hud) {
+  if (!game || !hud) return;
+  if (typeof hud.setBuffs === "function" && game.buffs) {
+    hud.setBuffs(game.buffs.active());
+  }
+  if (typeof hud.setDashReady === "function" && game.player) {
+    const cooldown = game.player.dashCooldownRemaining != null
+      ? Math.max(0, Math.min(1, game.player.dashCooldownRemaining / 0.9))
+      : 0;
+    hud.setDashReady(game.player.dashReady, cooldown);
+  }
+  if (typeof hud.setBossHealth === "function") {
+    const boss = game.boss;
+    const frac = boss && boss.alive && boss.maxHealth > 0
+      ? Math.max(0, Math.min(1, boss.health / boss.maxHealth))
+      : null;
+    hud.setBossHealth(frac);
+  }
+}
+
+// wireV2Hud: subscribe to wave events for banner display
+export function wireV2Hud(game, hud) {
+  if (!game || !hud) return;
+  if (typeof game.on !== "function") return;
+  game.on("waveStart", ({ wave, isBoss } = {}) => {
+    if (typeof hud.setWaveBanner === "function") {
+      hud.setWaveBanner(isBoss ? "BOSS WAVE" : "WAVE " + wave);
+    }
+  });
 }

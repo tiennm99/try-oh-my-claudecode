@@ -1,4 +1,5 @@
 // Player: WASD/arrow movement, mouse aim, click/space to shoot, invuln after hit.
+// V2: buff-aware shooting (rapidfire/spread/pierce) + Shift dash (180ms, 900ms cd).
 
 import { Entity } from "../engine/entity.js";
 import { Bullet } from "./bullet.js";
@@ -7,6 +8,12 @@ const SPEED = 260;
 const SHOOT_COOLDOWN = 0.14;
 const INVULN_TIME = 0.9;
 const KNOCKBACK_DECAY = 6;
+
+const DASH_DURATION = 0.18;
+const DASH_COOLDOWN = 0.9;
+const DASH_SPEED = 480;
+const SPREAD_ANGLE = (12 * Math.PI) / 180;
+const PIERCE_BUDGET = 3;
 
 export class Player extends Entity {
   constructor(opts = {}) {
@@ -17,6 +24,14 @@ export class Player extends Entity {
     this.cooldown = 0;
     this.knockback = { x: 0, y: 0 };
     this.aim = { x: 1, y: 0 };
+    this.dashTime = 0;
+    this.dashCooldownRemaining = 0;
+    this.dashDir = { x: 1, y: 0 };
+    this._dashFxTimer = 0;
+  }
+
+  get dashReady() {
+    return this.dashCooldownRemaining <= 0 && this.dashTime <= 0;
   }
 
   reset() {
@@ -30,12 +45,57 @@ export class Player extends Entity {
     this.knockback.x = 0;
     this.knockback.y = 0;
     this.alive = true;
+    this.dashTime = 0;
+    this.dashCooldownRemaining = 0;
+    this._dashFxTimer = 0;
+  }
+
+  tryDash(game) {
+    if (!this.dashReady || !this.alive) return false;
+
+    let dx = this.vel.x;
+    let dy = this.vel.y;
+    if (Math.hypot(dx, dy) < 1) {
+      dx = this.aim.x;
+      dy = this.aim.y;
+    }
+    const len = Math.hypot(dx, dy) || 1;
+    this.dashDir.x = dx / len;
+    this.dashDir.y = dy / len;
+
+    this.dashTime = DASH_DURATION;
+    this.dashCooldownRemaining = DASH_COOLDOWN;
+    this.invuln = Math.max(this.invuln, DASH_DURATION + 0.05);
+    this._dashFxTimer = 0;
+
+    if (game?.particles) {
+      game.particles.emit({
+        x: this.pos.x,
+        y: this.pos.y,
+        color: "#0ff",
+        count: 5,
+        speedMin: 60,
+        speedMax: 180,
+        lifetime: 0.3,
+        radius: 3,
+      });
+    }
+    if (game?.audio) game.audio.play("shoot");
+    return true;
   }
 
   update(dt, game) {
     const input = game.input;
     const canvas = game.canvas;
     if (!input || !canvas) return;
+
+    if (input.wasPressed && (input.wasPressed("ShiftLeft") || input.wasPressed("ShiftRight"))) {
+      this.tryDash(game);
+    }
+
+    if (this.dashCooldownRemaining > 0) {
+      this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - dt);
+    }
 
     let mx = 0;
     let my = 0;
@@ -49,8 +109,30 @@ export class Player extends Entity {
       mx /= len;
       my /= len;
     }
-    this.vel.x = mx * SPEED;
-    this.vel.y = my * SPEED;
+
+    if (this.dashTime > 0) {
+      this.vel.x = this.dashDir.x * DASH_SPEED;
+      this.vel.y = this.dashDir.y * DASH_SPEED;
+      this.dashTime -= dt;
+
+      this._dashFxTimer -= dt;
+      if (this._dashFxTimer <= 0 && game?.particles) {
+        this._dashFxTimer = 0.035;
+        game.particles.emit({
+          x: this.pos.x,
+          y: this.pos.y,
+          color: "#7ff",
+          count: 1,
+          speedMin: 10,
+          speedMax: 40,
+          lifetime: 0.25,
+          radius: 3,
+        });
+      }
+    } else {
+      this.vel.x = mx * SPEED;
+      this.vel.y = my * SPEED;
+    }
 
     this.pos.x += (this.vel.x + this.knockback.x) * dt;
     this.pos.y += (this.vel.y + this.knockback.y) * dt;
@@ -82,28 +164,56 @@ export class Player extends Entity {
     const wantsShoot = mouse.down || input.isDown("Space");
     if (wantsShoot && this.cooldown <= 0) {
       this.shoot(game);
-      this.cooldown = SHOOT_COOLDOWN;
+      const rapid = game.buffs && game.buffs.hasBuff("rapidfire");
+      this.cooldown = rapid ? SHOOT_COOLDOWN * 0.5 : SHOOT_COOLDOWN;
     }
   }
 
-  shoot(game) {
+  _spawnBullet(game, angleOffset) {
     const speed = 520;
-    const vx = this.aim.x * speed;
-    const vy = this.aim.y * speed;
-    const spawnX = this.pos.x + this.aim.x * (this.radius + 2);
-    const spawnY = this.pos.y + this.aim.y * (this.radius + 2);
-    const bullet = new Bullet({ x: spawnX, y: spawnY, vx, vy, owner: "player" });
+    const cos = Math.cos(angleOffset);
+    const sin = Math.sin(angleOffset);
+    const ax = this.aim.x * cos - this.aim.y * sin;
+    const ay = this.aim.x * sin + this.aim.y * cos;
+    const vx = ax * speed;
+    const vy = ay * speed;
+    const spawnX = this.pos.x + ax * (this.radius + 2);
+    const spawnY = this.pos.y + ay * (this.radius + 2);
+    const pierce = game.buffs && game.buffs.hasBuff("pierce") ? PIERCE_BUDGET : 0;
+    const bullet = new Bullet({ x: spawnX, y: spawnY, vx, vy, owner: "player", pierce });
     game.bullets.add(bullet);
-    game.particles.emit({
-      x: spawnX,
-      y: spawnY,
-      color: "#7ff",
-      count: 4,
-      speedMin: 40,
-      speedMax: 140,
-      lifetime: 0.18,
-      radius: 2.5,
-    });
+    return { spawnX, spawnY };
+  }
+
+  shoot(game) {
+    const spread = game.buffs && game.buffs.hasBuff("spread");
+    if (spread) {
+      const { spawnX, spawnY } = this._spawnBullet(game, 0);
+      this._spawnBullet(game, -SPREAD_ANGLE);
+      this._spawnBullet(game, SPREAD_ANGLE);
+      game.particles.emit({
+        x: spawnX,
+        y: spawnY,
+        color: "#f4f",
+        count: 6,
+        speedMin: 40,
+        speedMax: 140,
+        lifetime: 0.18,
+        radius: 2.5,
+      });
+    } else {
+      const { spawnX, spawnY } = this._spawnBullet(game, 0);
+      game.particles.emit({
+        x: spawnX,
+        y: spawnY,
+        color: "#7ff",
+        count: 4,
+        speedMin: 40,
+        speedMax: 140,
+        lifetime: 0.18,
+        radius: 2.5,
+      });
+    }
     if (game.audio) game.audio.play("shoot");
   }
 
@@ -131,7 +241,7 @@ export class Player extends Entity {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     ctx.shadowColor = "#0ff";
-    ctx.shadowBlur = 22;
+    ctx.shadowBlur = this.dashTime > 0 ? 32 : 22;
     ctx.fillStyle = flicker ? "#6ff" : "#0ff";
     ctx.beginPath();
     ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2);
