@@ -84,8 +84,29 @@ export class HUD {
     if (this.nodes.finalBest) this.nodes.finalBest.textContent = String(v);
   }
 
-  setFinalScore(v) {
+  setFinalScore(v, rank) {
     if (this.nodes.finalScore) this.nodes.finalScore.textContent = String(v);
+    // Show rank badge if rank is 1-5.
+    let rankEl = this.root.querySelector('[data-hud="final-rank"]');
+    if (rank != null && rank >= 1 && rank <= 5) {
+      if (!rankEl) {
+        rankEl = document.createElement("div");
+        rankEl.setAttribute("data-hud", "final-rank");
+        rankEl.className = "hud-rank-badge";
+        if (this.nodes.finalScore && this.nodes.finalScore.parentNode) {
+          this.nodes.finalScore.parentNode.appendChild(rankEl);
+        } else {
+          const hudRoot = this.root.getElementById
+            ? this.root.getElementById("hud")
+            : this.root.querySelector("#hud");
+          if (hudRoot) hudRoot.appendChild(rankEl);
+        }
+      }
+      rankEl.textContent = `#${rank}`;
+      rankEl.classList.remove("hidden");
+    } else if (rankEl) {
+      rankEl.classList.add("hidden");
+    }
   }
 
   // --- V2 API ---
@@ -133,10 +154,18 @@ export class HUD {
       chip.setAttribute("data-kind", kind);
       chip.style.setProperty("--p", String(remaining));
 
+      const tier = list[i].tier;
       if (kind === "shield") {
         chip.textContent = String(stacks != null ? stacks : "");
+        chip.removeAttribute("data-tier");
       } else {
-        chip.textContent = "";
+        const romanTier = tier > 1 ? (tier === 2 ? "II" : "III") : "";
+        chip.textContent = romanTier;
+        if (tier > 1) {
+          chip.setAttribute("data-tier", String(tier));
+        } else {
+          chip.removeAttribute("data-tier");
+        }
       }
     }
   }
@@ -173,6 +202,20 @@ export class HUD {
         ? this.root.getElementById("hud")
         : this.root.querySelector("#hud");
       if (hudRoot) hudRoot.appendChild(el);
+    }
+
+    // Remove previous flavor classes before adding new one.
+    el.classList.remove("banner-boss", "banner-bonus", "banner-perfect", "banner-wave");
+
+    const upper = String(text).toUpperCase();
+    if (upper.includes("BOSS")) {
+      el.classList.add("banner-boss");
+    } else if (upper.includes("BONUS")) {
+      el.classList.add("banner-bonus");
+    } else if (upper.includes("PERFECT")) {
+      el.classList.add("banner-perfect");
+    } else {
+      el.classList.add("banner-wave");
     }
 
     el.textContent = text;
@@ -214,6 +257,22 @@ export function wireV2Hud(game, hud) {
   game.on("waveStart", ({ wave, isBoss } = {}) => {
     if (typeof hud.setWaveBanner === "function") {
       hud.setWaveBanner(isBoss ? "BOSS WAVE" : "WAVE " + wave);
+    }
+  });
+}
+
+// wireV3Hud: subscribe to V3 waveStart (uses label) and waveCleared (perfect banner).
+export function wireV3Hud(game, hud) {
+  if (!game || !hud) return;
+  if (typeof game.on !== "function") return;
+  game.on("waveStart", ({ wave, label } = {}) => {
+    if (typeof hud.setWaveBanner === "function") {
+      hud.setWaveBanner(label || `WAVE ${wave}`);
+    }
+  });
+  game.on("waveCleared", ({ perfect } = {}) => {
+    if (perfect && typeof hud.setWaveBanner === "function") {
+      hud.setWaveBanner("PERFECT WAVE!", 1.2);
     }
   });
 }

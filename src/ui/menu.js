@@ -105,4 +105,42 @@ export class Menu {
     const el = this.elements.pause;
     if (el) el.classList.add("hidden");
   }
+
+  renderLeaderboard(top5, currentScore) {
+    const ol = this.root.querySelector("[data-overlay-leaderboard]");
+    if (!ol) return;
+    ol.innerHTML = "";
+    const now = Date.now();
+    const entries = Array.isArray(top5) ? top5.slice(0, 5) : [];
+    for (let i = 0; i < 5; i++) {
+      const li = document.createElement("li");
+      const entry = entries[i];
+      if (!entry) {
+        li.classList.add("leaderboard__row--empty");
+        li.innerHTML = `<span class="leaderboard__rank">${i + 1}</span><span class="leaderboard__score">—</span><span class="leaderboard__date"></span>`;
+        ol.appendChild(li);
+        continue;
+      }
+      const rankBadge = `<span class="leaderboard__rank">${i + 1}</span>`;
+      const scoreEl = `<span class="leaderboard__score">${entry.score.toLocaleString()}</span>`;
+      const dateEl = `<span class="leaderboard__date">${_formatDate(entry.date, now)}</span>`;
+      li.innerHTML = rankBadge + scoreEl + dateEl;
+      if (i === 0) li.classList.add("leaderboard__row--rank-1");
+      const isCurrent = entry.score === currentScore && (now - new Date(entry.date).getTime()) < 5000;
+      if (isCurrent) li.classList.add("leaderboard__row--current");
+      ol.appendChild(li);
+    }
+  }
+}
+
+function _formatDate(dateVal, now) {
+  if (!dateVal) return "";
+  const ts = typeof dateVal === "number" ? dateVal : new Date(dateVal).getTime();
+  if (isNaN(ts)) return "";
+  const diffMs = now - ts;
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "1d ago";
+  if (diffDays < 30) return `${diffDays}d ago`;
+  return new Date(ts).toISOString().slice(0, 10);
 }

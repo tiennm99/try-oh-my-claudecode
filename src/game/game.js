@@ -1,6 +1,8 @@
 // Game: ties player, enemies, bullets, waves, collision, particles, audio,
 // scoring/combo, screen shake, and the state machine together.
 // V2 adds: powerups, buffs, boss, enemy bullets, starfield, floaters, settings.
+// V3 adds: drones, hit-stop, tier-aware buffs, plus placeholders for medals,
+// bonus meteor waves, and leaderboard populated by workers 2/3/main.
 
 import { EntityPool } from "../engine/entity.js";
 import { Player } from "./player.js";
@@ -13,6 +15,10 @@ import { Powerup, maybeDrop, applyPowerup, randomKind } from "./powerup.js";
 import { Starfield } from "./starfield.js";
 import { FloaterPool } from "./floaters.js";
 import { loadSettings } from "./settings.js";
+import { DronePool } from "./drones.js";
+import { HitStop } from "./hitstop.js";
+import { MedalPool } from "./medals.js";
+import { BonusWaveManager } from "./bonus.js";
 
 export const GameState = {
   MENU: "menu",
@@ -23,6 +29,7 @@ export const GameState = {
 
 const COMBO_WINDOW = 2.0;
 const SHAKE_DECAY = 10;
+const MEDAL_DROP_CHANCE = 0.25;
 
 const COMBO_COLORS = ["#ffffff", "#22e4ff", "#ff3df0", "#ffd84d"];
 
@@ -60,6 +67,19 @@ export class Game {
     this.floaters = new FloaterPool();
     this.settings = loadSettings();
 
+    // V3: owned by this worker.
+    this.drones = new DronePool(this.player);
+    this.hitstop = new HitStop();
+
+    // V3: worker-2 owns medals + bonus wave manager (additive, null-guarded).
+    this.medals = new MedalPool();
+    this.bonus = new BonusWaveManager();
+    // V3: leaderboard set externally by main.js / worker-3.
+    this.leaderboard = null;
+
+    // V3: perfect-wave tracking. True while current wave has dealt no damage.
+    this._perfectWave = true;
+
     if (this.audio && typeof this.audio.setMasterVolume === "function") {
       this.audio.setMasterVolume(this.settings.volume);
     }
@@ -68,6 +88,12 @@ export class Game {
     this.time = 0;
 
     this.listeners = { stateChange: [] };
+
+    // V3: reset perfect flag whenever a new wave starts. Workers 2/3/main
+    // may also listen for waveStart / waveCleared.
+    this.on("waveStart", () => {
+      this._perfectWave = true;
+    });
   }
 
   on(event, fn) {
@@ -115,8 +141,13 @@ export class Game {
     this.enemyBullets.clear();
     if (this.floaters && typeof this.floaters.clear === "function") this.floaters.clear();
     if (this.buffs) this.buffs.clear();
+    if (this.drones && typeof this.drones.clear === "function") this.drones.clear();
+    if (this.hitstop && typeof this.hitstop.reset === "function") this.hitstop.reset();
+    if (this.medals && typeof this.medals.clear === "function") this.medals.clear();
+    if (this.bonus && typeof this.bonus.reset === "function") this.bonus.reset();
     this.boss = null;
     this.waves.reset();
+    this._perfectWave = true;
     this._syncHud();
   }
 
@@ -130,7 +161,11 @@ export class Game {
     this.hud.setWave(this.waves.current);
     this.hud.setHealth(this.player.health, this.player.maxHealth);
     this.hud.setCombo(this._multiplier());
-    if (this.highscore) this.hud.setBest(this.highscore.get());
+    if (this.leaderboard && typeof this.leaderboard.top === "function") {
+      this.hud.setBest(this.leaderboard.top() ?? 0);
+    } else if (this.highscore) {
+      this.hud.setBest(this.highscore.get());
+    }
     if (typeof this.hud.setBuffs === "function") this.hud.setBuffs(this.buffs.active());
     if (typeof this.hud.setDashReady === "function") this.hud.setDashReady(this.player.dashReady);
     if (typeof this.hud.setBossHealth === "function") this.hud.setBossHealth(null);
@@ -141,8 +176,8 @@ export class Game {
   }
 
   onEnemyKilled(enemy) {
-    const mult = this._multiplier();
-    const gained = enemy.score * mult;
+    const prevMult = this._multiplier();
+    const gained = enemy.score * prevMult;
     this.score += gained;
     this.combo += 1;
     this.comboTimer = COMBO_WINDOW;
@@ -163,14 +198,27 @@ export class Game {
       this.floaters.emit({
         x: enemy.pos.x,
         y: enemy.pos.y,
-        text: `+${gained} x${mult}!`,
-        color: comboColor(mult),
+        text: `+${gained} x${prevMult}!`,
+        color: comboColor(prevMult),
       });
     }
 
     const kind = maybeDrop(enemy.type);
     if (kind) {
       this.powerups.add(new Powerup({ kind, x: enemy.pos.x, y: enemy.pos.y }));
+    }
+
+    // V3: combo multiplier bump hit-stop.
+    const newMult = this._multiplier();
+    if (newMult > prevMult && newMult >= 2 && this.hitstop) {
+      this.hitstop.trigger(80, 0.2);
+    }
+
+    // V3: medal drop (non-boss enemies only; boss uses onBossDefeated).
+    if (this.medals && typeof this.medals.maybeSpawn === "function" && enemy.type !== "boss") {
+      if (Math.random() < MEDAL_DROP_CHANCE) {
+        this.medals.maybeSpawn(enemy.pos.x, enemy.pos.y, this.waves.current);
+      }
     }
 
     if (this.hud) {
@@ -181,6 +229,9 @@ export class Game {
 
   onBossDefeated(boss) {
     if (!boss) return;
+    // V3: bigger hit-stop on boss death, applied before FX.
+    if (this.hitstop) this.hitstop.trigger(180, 0.1);
+
     this.score += 500;
     this.shake = Math.min(32, this.shake + 20);
     this.particles.emit({
@@ -218,6 +269,10 @@ export class Game {
       this.hud.setScore(this.score);
       if (typeof this.hud.setBossHealth === "function") this.hud.setBossHealth(null);
     }
+  }
+
+  onWaveCleared(wave, wasPerfect) {
+    this._emit("waveCleared", { wave, perfect: wasPerfect === true });
   }
 
   applyBomb() {
@@ -303,6 +358,9 @@ export class Game {
       return;
     }
 
+    // V3: actual damage clears perfect-wave flag (shield block does not).
+    this._perfectWave = false;
+
     this.combo = 0;
     this.comboTimer = 0;
     this.shake = Math.min(22, this.shake + 10);
@@ -327,12 +385,19 @@ export class Game {
   }
 
   _gameOver() {
-    if (this.highscore) {
+    let rank = null;
+    if (this.leaderboard && typeof this.leaderboard.submit === "function") {
+      const res = this.leaderboard.submit(this.score);
+      if (res && typeof res.rank === "number") rank = res.rank;
+      if (this.hud && typeof this.leaderboard.top === "function") {
+        this.hud.setBest(this.leaderboard.top() ?? 0);
+      }
+    } else if (this.highscore) {
       this.highscore.submit(this.score);
       if (this.hud) this.hud.setBest(this.highscore.get());
     }
     if (this.hud && typeof this.hud.setFinalScore === "function") {
-      this.hud.setFinalScore(this.score);
+      this.hud.setFinalScore(this.score, rank);
     }
     if (this.audio) this.audio.play("gameover");
     this._setState(GameState.GAMEOVER);
@@ -340,14 +405,20 @@ export class Game {
 
   update(dt) {
     if (this.state !== GameState.PLAYING) return;
-    this.time += dt;
+
+    // V3: hit-stop scaled dt drives game-world updates. UI / starfield
+    // still use raw dt so they don't visibly freeze.
+    const scaled = this.hitstop ? this.hitstop.sample(dt) : dt;
+    if (this.hitstop) this.hitstop.tick(dt);
+
+    this.time += scaled;
 
     if (this.audio && typeof this.audio.setMasterVolume === "function") {
       this.audio.setMasterVolume(this.settings.volume);
     }
 
     if (this.comboTimer > 0) {
-      this.comboTimer -= dt;
+      this.comboTimer -= scaled;
       if (this.comboTimer <= 0) {
         this.combo = 0;
         if (this.hud) this.hud.setCombo(this._multiplier());
@@ -364,36 +435,48 @@ export class Game {
     if (this.starfield && typeof this.starfield.update === "function") {
       this.starfield.update(dt);
     }
-    if (this.buffs) this.buffs.tick(dt);
+    if (this.buffs) this.buffs.tick(scaled);
 
-    this.player.update(dt, this);
+    this.player.update(scaled, this);
 
     const bullets = this.bullets.items;
-    for (let i = 0; i < bullets.length; i++) bullets[i].update(dt, this);
+    for (let i = 0; i < bullets.length; i++) bullets[i].update(scaled, this);
+
+    if (this.drones && typeof this.drones.update === "function") {
+      this.drones.update(scaled, this);
+    }
 
     const enemies = this.enemies.items;
-    for (let i = 0; i < enemies.length; i++) enemies[i].update(dt, this);
+    for (let i = 0; i < enemies.length; i++) enemies[i].update(scaled, this);
 
     const eb = this.enemyBullets.items;
-    for (let i = 0; i < eb.length; i++) eb[i].update(dt, this);
+    for (let i = 0; i < eb.length; i++) eb[i].update(scaled, this);
 
     const pus = this.powerups.items;
-    for (let i = 0; i < pus.length; i++) pus[i].update(dt, this);
+    for (let i = 0; i < pus.length; i++) pus[i].update(scaled, this);
 
     if (this.boss && this.boss.alive && typeof this.boss.update === "function") {
-      this.boss.update(dt, this);
+      this.boss.update(scaled, this);
+    }
+
+    if (this.medals && typeof this.medals.update === "function") {
+      this.medals.update(scaled, this);
     }
 
     resolveCollisions(this);
 
-    this.waves.update(dt, this);
+    if (this.bonus && typeof this.bonus.isActive === "function" && this.bonus.isActive()) {
+      if (typeof this.bonus.update === "function") this.bonus.update(scaled, this);
+    } else {
+      this.waves.update(scaled, this);
+    }
     if (this.waves.current !== prevWave) {
       if (this.audio) this.audio.play("wave");
       this.shake = Math.min(18, this.shake + 6);
     }
 
-    this.particles.update(dt);
-    if (this.floaters && typeof this.floaters.update === "function") this.floaters.update(dt);
+    this.particles.update(scaled);
+    if (this.floaters && typeof this.floaters.update === "function") this.floaters.update(scaled);
 
     this.bullets.filterAlive();
     this.enemies.filterAlive();
@@ -465,11 +548,19 @@ export class Game {
       const pus = this.powerups.items;
       for (let i = 0; i < pus.length; i++) pus[i].render(ctx);
 
+      if (this.medals && typeof this.medals.render === "function") {
+        this.medals.render(ctx);
+      }
+
       const bullets = this.bullets.items;
       for (let i = 0; i < bullets.length; i++) bullets[i].render(ctx);
 
       const enemies = this.enemies.items;
       for (let i = 0; i < enemies.length; i++) enemies[i].render(ctx);
+
+      if (this.drones && typeof this.drones.render === "function") {
+        this.drones.render(ctx);
+      }
 
       if (this.boss && this.boss.alive && typeof this.boss.render === "function") {
         this.boss.render(ctx);
@@ -483,6 +574,10 @@ export class Game {
       }
 
       this.particles.render(ctx);
+
+      if (this.bonus && typeof this.bonus.render === "function") {
+        this.bonus.render(ctx);
+      }
 
       if (this.floaters && typeof this.floaters.render === "function") {
         this.floaters.render(ctx);

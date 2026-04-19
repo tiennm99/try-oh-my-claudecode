@@ -1,5 +1,7 @@
 // Circle-vs-circle collision resolution.
 // V2: enemy bullets vs player, player bullets vs boss, bullet pierce handling.
+// V3: drone bullets share player-bullet logic (owner 'drone' treated like 'player');
+// meteors vs bullets during bonus waves; meteors do NOT damage the player.
 
 import { EnemyTypes, spawnSplitterChildren } from "./enemy.js";
 
@@ -10,16 +12,23 @@ function circleHit(a, b) {
   return dx * dx + dy * dy <= r * r;
 }
 
+function isFriendlyBullet(b) {
+  const o = b?.owner;
+  return o == null || o === "player" || o === "drone";
+}
+
 export function resolveCollisions(game) {
   const bullets = game.bullets.items;
   const enemies = game.enemies.items;
   const player = game.player;
   const boss = game.boss;
+  const meteors = game.bonus?.meteors;
 
-  // Player bullets vs enemies + boss (with pierce).
+  // Player + drone bullets vs enemies + boss + meteors (with pierce).
   for (let i = 0; i < bullets.length; i++) {
     const b = bullets[i];
     if (!b.alive) continue;
+    if (!isFriendlyBullet(b)) continue;
 
     for (let j = 0; j < enemies.length; j++) {
       const e = enemies[j];
@@ -84,6 +93,29 @@ export function resolveCollisions(game) {
             game.onBossDefeated(boss);
           }
         }
+      }
+    }
+
+    if (!b.alive) continue;
+
+    // V3: bonus-wave meteors. Destroying one awards score via BonusWaveManager.
+    if (meteors && meteors.length > 0) {
+      for (let k = 0; k < meteors.length; k++) {
+        const m = meteors[k];
+        if (!m.alive) continue;
+        if (typeof b.hasHit === "function" && b.hasHit(m)) continue;
+        if (!circleHit(b, m)) continue;
+
+        const killed = typeof m.takeDamage === "function" ? m.takeDamage(b.damage || 1) : (m.alive = false, true);
+        if (typeof b.onHit === "function") {
+          b.onHit(m);
+        } else {
+          b.alive = false;
+        }
+        if (killed && typeof game.bonus?.onMeteorDestroyed === "function") {
+          game.bonus.onMeteorDestroyed(m, game);
+        }
+        if (!b.alive) break;
       }
     }
   }

@@ -1,6 +1,7 @@
 // Powerup: floating pickup that drifts, magnetizes to nearby player, expires.
 
 import { Entity } from "../engine/entity.js";
+import { DRONE_COUNT, DURATION } from "./tiers.js";
 
 const TTL = 12;
 const MAGNET_RANGE = 120;
@@ -16,6 +17,7 @@ const KIND_COLORS = {
   shield: "#ffd84d",
   heal: "#7dff5c",
   bomb: "#ff5a5a",
+  drone: "#7ee7ff",
 };
 
 const KIND_GLYPHS = {
@@ -25,6 +27,7 @@ const KIND_GLYPHS = {
   shield: "H",
   heal: "+",
   bomb: "B",
+  drone: "D",
 };
 
 const DROP_ODDS = {
@@ -36,7 +39,17 @@ const DROP_ODDS = {
   boss: 1.0,
 };
 
-const KIND_POOL = ["rapidfire", "spread", "pierce", "shield", "heal", "bomb"];
+const KIND_POOL = ["rapidfire", "spread", "pierce", "shield", "heal", "bomb", "drone"];
+
+const KIND_WEIGHTS = {
+  rapidfire: 18,
+  spread: 18,
+  pierce: 18,
+  shield: 16,
+  heal: 14,
+  bomb: 11,
+  drone: 5,
+};
 
 export class Powerup extends Entity {
   constructor({ kind = "rapidfire", x = 0, y = 0 } = {}) {
@@ -137,15 +150,28 @@ export class Powerup extends Entity {
   }
 }
 
+function weightedPick() {
+  let total = 0;
+  for (const k of KIND_POOL) total += KIND_WEIGHTS[k] ?? 0;
+  if (total <= 0) return KIND_POOL[Math.floor(Math.random() * KIND_POOL.length)];
+  let r = Math.random() * total;
+  for (const k of KIND_POOL) {
+    const w = KIND_WEIGHTS[k] ?? 0;
+    if (r < w) return k;
+    r -= w;
+  }
+  return KIND_POOL[KIND_POOL.length - 1];
+}
+
 export function maybeDrop(enemyType) {
   const odds = DROP_ODDS[enemyType];
   if (odds == null) return null;
   if (Math.random() >= odds) return null;
-  return KIND_POOL[Math.floor(Math.random() * KIND_POOL.length)];
+  return weightedPick();
 }
 
 export function randomKind() {
-  return KIND_POOL[Math.floor(Math.random() * KIND_POOL.length)];
+  return weightedPick();
 }
 
 export function applyPowerup(game, kind) {
@@ -154,7 +180,7 @@ export function applyPowerup(game, kind) {
     case "rapidfire":
     case "spread":
     case "pierce":
-      if (game.buffs) game.buffs.addBuff(kind, 8);
+      if (game.buffs) game.buffs.addBuff(kind);
       break;
     case "shield":
       if (game.buffs) game.buffs.addBuff("shield");
@@ -167,6 +193,15 @@ export function applyPowerup(game, kind) {
       break;
     case "bomb":
       if (typeof game.applyBomb === "function") game.applyBomb();
+      break;
+    case "drone":
+      if (game.buffs) {
+        game.buffs.addBuff("drone", DURATION.drone[1]);
+        const tier = game.buffs.getTier("drone") || 1;
+        if (game.drones && typeof game.drones.setActive === "function") {
+          game.drones.setActive(DRONE_COUNT[tier] ?? 1, tier);
+        }
+      }
       break;
     default:
       break;

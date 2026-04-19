@@ -1,6 +1,10 @@
-// BuffManager: tracks timed buffs (rapidfire/spread/pierce) and stacked shield.
+// BuffManager: tracks timed buffs (rapidfire/spread/pierce/drone) and
+// stacked shield. V3 adds tiering: re-collecting a tier-eligible buff
+// bumps its tier (capped via MAX_TIER) and refreshes remaining time.
 
-const TIMED_KINDS = ["rapidfire", "spread", "pierce"];
+import { MAX_TIER, DURATION, resolveTier } from "./tiers.js";
+
+const TIMED_KINDS = ["rapidfire", "spread", "pierce", "drone"];
 const SHIELD_MAX = 2;
 
 export class BuffManager {
@@ -14,15 +18,28 @@ export class BuffManager {
     this.shield = 0;
   }
 
-  addBuff(kind, duration = 8) {
+  addBuff(kind, duration) {
     if (kind === "shield") {
       this.shield = Math.min(SHIELD_MAX, this.shield + 1);
       return;
     }
     if (!TIMED_KINDS.includes(kind)) return;
-    const existing = this.timed.get(kind) || { remaining: 0, total: duration };
-    const remaining = Math.max(existing.remaining, duration);
-    this.timed.set(kind, { remaining, total: Math.max(existing.total, duration) });
+
+    const existing = this.timed.get(kind);
+    const currentTier = existing ? existing.tier : 0;
+    const maxTier = MAX_TIER[kind] || 1;
+    const nextTier = existing ? resolveTier(kind, currentTier) : 1;
+
+    const tableDur = DURATION[kind]?.[nextTier];
+    const baseDur = typeof duration === "number" ? duration : (tableDur ?? 8);
+    const total = Math.max(tableDur ?? 0, baseDur);
+    const remaining = existing ? Math.max(existing.remaining, total) : total;
+
+    this.timed.set(kind, {
+      tier: Math.min(nextTier, maxTier),
+      remaining,
+      total,
+    });
   }
 
   tick(dt) {
@@ -37,6 +54,12 @@ export class BuffManager {
     return this.timed.has(kind);
   }
 
+  getTier(kind) {
+    if (kind === "shield") return this.shield;
+    const entry = this.timed.get(kind);
+    return entry ? entry.tier : 0;
+  }
+
   consumeShield() {
     if (this.shield > 0) {
       this.shield -= 1;
@@ -49,10 +72,15 @@ export class BuffManager {
     const list = [];
     for (const [kind, entry] of this.timed) {
       const frac = entry.total > 0 ? Math.max(0, Math.min(1, entry.remaining / entry.total)) : 0;
-      list.push({ kind, remaining: frac });
+      list.push({ kind, remaining: frac, tier: entry.tier || 1 });
     }
     if (this.shield > 0) {
-      list.push({ kind: "shield", remaining: this.shield / SHIELD_MAX, stacks: this.shield });
+      list.push({
+        kind: "shield",
+        remaining: this.shield / SHIELD_MAX,
+        stacks: this.shield,
+        tier: 1,
+      });
     }
     return list;
   }

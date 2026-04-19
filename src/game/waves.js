@@ -1,5 +1,6 @@
 // Wave spawner: schedules enemies with stagger, advances when field is clear.
 // V2: boss wave every 5 waves; shooters injected from wave 3+.
+// V3: bonus meteor wave every 4th wave that is not a boss wave.
 
 import { Enemy, EnemyTypes } from "./enemy.js";
 import { spawnBoss } from "./boss.js";
@@ -12,10 +13,22 @@ function isBossWave(wave) {
   return wave > 0 && wave % 5 === 0;
 }
 
+function isBonusWave(wave) {
+  return wave > 0 && wave % 4 === 0 && wave % 5 !== 0;
+}
+
 function shooterCount(wave) {
   if (wave < 3) return 0;
   const n = 1 + Math.floor((wave - 3) / 2);
   return Math.min(MAX_SHOOTERS, n);
+}
+
+function waveLabel(wave, isBoss, isBonus) {
+  if (isBonus) return "BONUS: METEOR RAIN!";
+  if (isBoss) return "BOSS APPROACHING";
+  if (wave === 2) return "ROLL CALL";
+  if (wave === 3) return "SHOOTERS JOIN";
+  return `WAVE ${wave}`;
 }
 
 export class WaveManager {
@@ -26,7 +39,9 @@ export class WaveManager {
     this.intermission = 0;
     this.waveActive = false;
     this.isBoss = false;
+    this.isBonus = false;
     this.bossSpawned = false;
+    this.bonusStarted = false;
     this._buildQueue(this.wave);
   }
 
@@ -37,7 +52,9 @@ export class WaveManager {
     this.intermission = 0;
     this.waveActive = false;
     this.isBoss = false;
+    this.isBonus = false;
     this.bossSpawned = false;
+    this.bonusStarted = false;
     this._buildQueue(this.wave);
     this.waveActive = true;
   }
@@ -49,9 +66,11 @@ export class WaveManager {
   _buildQueue(wave) {
     const q = [];
     this.isBoss = isBossWave(wave);
+    this.isBonus = isBonusWave(wave);
     this.bossSpawned = false;
+    this.bonusStarted = false;
 
-    if (this.isBoss) {
+    if (this.isBoss || this.isBonus) {
       this.queue = q;
       this.spawnTimer = 0.4;
       return;
@@ -106,6 +125,16 @@ export class WaveManager {
   }
 
   update(dt, game) {
+    // V3: bonus wave just ended — enter intermission before advancing.
+    if (game?.bonus && game.bonus.finished) {
+      game.bonus.finished = false;
+      this.waveActive = false;
+      this.isBonus = false;
+      this.bonusStarted = false;
+      this.intermission = INTERMISSION;
+      return;
+    }
+
     if (this.intermission > 0) {
       this.intermission -= dt;
       if (this.intermission <= 0) {
@@ -114,7 +143,12 @@ export class WaveManager {
         this.waveActive = true;
         if (game.hud) game.hud.setWave(this.wave);
         if (typeof game._emit === "function") {
-          game._emit("waveStart", { wave: this.wave, isBoss: this.isBoss });
+          game._emit("waveStart", {
+            wave: this.wave,
+            isBoss: this.isBoss,
+            isBonus: this.isBonus,
+            label: waveLabel(this.wave, this.isBoss, this.isBonus),
+          });
         }
       }
       return;
@@ -122,6 +156,17 @@ export class WaveManager {
 
     if (!this.waveActive) {
       this.waveActive = true;
+    }
+
+    if (this.isBonus) {
+      if (!this.bonusStarted) {
+        this.spawnTimer -= dt;
+        if (this.spawnTimer <= 0 && game?.bonus && typeof game.bonus.start === "function") {
+          game.bonus.start(game, this.wave);
+          this.bonusStarted = true;
+        }
+      }
+      return;
     }
 
     if (this.isBoss) {
@@ -141,6 +186,9 @@ export class WaveManager {
       if (game.boss == null) {
         this.waveActive = false;
         this.intermission = INTERMISSION;
+        if (typeof game.onWaveCleared === "function") {
+          game.onWaveCleared(this.wave, game._perfectWave === true);
+        }
       }
       return;
     }
@@ -156,6 +204,9 @@ export class WaveManager {
     } else if (game.enemies.size === 0) {
       this.waveActive = false;
       this.intermission = INTERMISSION;
+      if (typeof game.onWaveCleared === "function") {
+        game.onWaveCleared(this.wave, game._perfectWave === true);
+      }
     }
   }
 }

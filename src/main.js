@@ -4,9 +4,10 @@ import { createCanvas } from "./engine/canvas.js";
 import { createInput } from "./engine/input.js";
 import { startLoop } from "./engine/loop.js";
 import { Game, GameState } from "./game/game.js";
-import { HUD, wireV2Hud } from "./ui/hud.js";
+import { HUD, wireV2Hud, wireV3Hud } from "./ui/hud.js";
 import { Menu } from "./ui/menu.js";
 import { HighScore } from "./ui/highscore.js";
+import { Leaderboard } from "./ui/leaderboard.js";
 import { saveSettings } from "./game/settings.js";
 
 const canvasEl = document.getElementById("game");
@@ -16,10 +17,19 @@ const canvas = createCanvas(canvasEl);
 const input = createInput({ canvas: canvasEl, logicalWidth: canvas.width, logicalHeight: canvas.height });
 const hud = new HUD(document);
 const highscore = new HighScore();
+const leaderboard = new Leaderboard();
 
-const game = new Game({ canvas, input, hud, highscore });
-hud.setBest(highscore.get());
+// Shim: game.js checks for leaderboard first, so highscore becomes a fallback adapter.
+const highscoreShim = {
+  get: () => leaderboard.top(),
+  submit: (s) => { const r = leaderboard.submit(s); return r.top; },
+};
+
+const game = new Game({ canvas, input, hud, highscore: highscoreShim });
+game.leaderboard = leaderboard;
+hud.setBest(leaderboard.top());
 wireV2Hud(game, hud);
+wireV3Hud(game, hud);
 
 const menu = new Menu(
   document,
@@ -53,7 +63,12 @@ function renderOverlay(state) {
   else menu.hideAll();
 }
 
-game.on("stateChange", renderOverlay);
+game.on("stateChange", (state) => {
+  renderOverlay(state);
+  if (state === GameState.GAMEOVER) {
+    menu.renderLeaderboard?.(leaderboard.top5(), game.score);
+  }
+});
 renderOverlay(game.state);
 
 if (game.audio && typeof game.audio.setMasterVolume === "function") {
@@ -80,7 +95,7 @@ const loop = startLoop({
 });
 
 // Expose a small debug handle for other workers + console tinkering.
-window.__omc = { game, loop, canvas, input, hud, highscore };
+window.__omc = { game, loop, canvas, input, hud, highscore, leaderboard };
 
 let lastFpsLog = 0;
 setInterval(() => {
