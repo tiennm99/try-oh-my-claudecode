@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OMC Neon Arena</title>
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" width="1280" height="720"></canvas>
+
+      <div id="hud" class="hud">
+        <div class="hud__slot" data-slot="score">Score: <span data-hud="score">0</span></div>
+        <div class="hud__slot" data-slot="wave">Wave: <span data-hud="wave">1</span></div>
+        <div class="hud__slot" data-slot="health">HP: <span data-hud="health">100</span></div>
+        <div class="hud__slot" data-slot="combo">Combo: <span data-hud="combo">x1</span></div>
+      </div>
+
+      <div id="overlay-menu" class="overlay overlay--menu" data-overlay="menu">
+        <div class="overlay__panel">
+          <h1 class="overlay__title">OMC Neon Arena</h1>
+          <p class="overlay__subtitle">WASD / arrows to move &middot; mouse to aim &middot; click or space to shoot &middot; P to pause</p>
+          <button class="overlay__button" data-action="start">Start</button>
+          <p class="overlay__meta">Best: <span data-hud="best">0</span></p>
+        </div>
+      </div>
+
+      <div id="overlay-pause" class="overlay overlay--pause hidden" data-overlay="pause">
+        <div class="overlay__panel">
+          <h2 class="overlay__title">Paused</h2>
+          <button class="overlay__button" data-action="resume">Resume</button>
+          <button class="overlay__button" data-action="reset">Restart</button>
+        </div>
+      </div>
+
+      <div id="overlay-gameover" class="overlay overlay--gameover hidden" data-overlay="gameover">
+        <div class="overlay__panel">
+          <h2 class="overlay__title">You Died</h2>
+          <p class="overlay__meta">Score: <span data-hud="final-score">0</span></p>
+          <p class="overlay__meta">Best: <span data-hud="final-best">0</span></p>
+          <button class="overlay__button" data-action="reset">Try Again</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
